@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<!-- https://codelabs.developers.google.com/codelabs/tensorflowjs-object-detection#7 -->
+<html lang="en">
+    <head>
+        <script src="https://unpkg.com/@tensorflow/tfjs"></script>
+        <script src="https://unpkg.com/@tensorflow/tfjs-automl"></script>
+        <!-- <link rel="stylesheet" type="text/css" href="web.css"/> -->
+        <link rel="stylesheet" href="style.css">
+    <h1>Tote Layer Count Tester</h1>
+    </head>
+
+      <div>
+
+        <form>
+          <input type="file" id="myFile" name="filename">
+          <input type="submit" value="Run Model">
+        </form>
+
+        
+        <div id="liveView" class="camView">
+          <canvas id="canvas" width="0" height="0" style="border:1px solid #d3d3d3; cursor: pointer"></canvas>
+            <video id="webcam" autoplay muted controls></video>
+        </div>
+      </div>
+      
+      <script>
+      var model;
+      const loadingFirst = loadModel();
+      const img = document.getElementById('test_image');
+      const SAFEST_LIMIT = 4;
+      const ALLOWABLE_LIMIT = 8;
+      const DANGER_LIMIT = 12;
+
+      var video = document.querySelector('video');
+      let children = [];
+
+
+      //old version (with webcam instead of use uploaded mp4)
+      /* Setting up the constraint */
+      // var facingMode = "user"; // Can be 'user' or 'environment' to access back or front camera (NEAT!)
+      // var constraints = {
+      //   audio: false,
+      //   video: {
+      //   facingMode: facingMode
+      //   }
+      // };
+
+      // /* Stream it to video element */
+      // navigator.mediaDevices.getUserMedia(constraints).then(function success(stream) {
+      //   video.srcObject = stream;
+      // });
+
+      //new version
+      document.getElementById("myFile").onchange = function(event) {
+        let file = event.target.files[0];
+        let blobURL = URL.createObjectURL(file);
+        video.style.display = 'block';
+        video.src = blobURL;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('autoplay', '');
+        video.setAttribute('muted', '');
+        video.setAttribute('controls', '');
+        video.addEventListener("loadedmetadata", function (e) {
+          //when video loads, change the height and width of the html element to match
+          // console.log("added video width = "+this.videoWidth)
+          // console.log("added video height = "+this.videoHeight)
+          video.setAttribute("height", this.videoHeight)
+          video.setAttribute("width", this.videoWidth)
+          // predictWebcam()
+          predictVideoInput()
+        }, false);
+      }
+      
+      async function loadModel() {
+        // tf.setBackend('cpu'); //CPU backend
+        // tf.setBackend('wasm'); //WebAssembly backend
+        tf.setBackend('webgl'); //WebGL backend
+        console.log("TF Backend: " + tf.getBackend());
+      
+         //Load tf-js model
+         var start = new Date().getTime();
+      
+        //Google Vision Edge Higher Accuracy model
+        //first model
+        //this.model = await tf.automl.loadObjectDetection('first_trained_classifier/model-export/iod/tf_js-cropped_260_20220630021342-2022-07-05T17:01:05.648048Z/model.json');
+        
+        //second model with the two white labels emphasized
+        // this.model = await tf.automl.loadObjectDetection('./second_labelled_two_white_tags/model-export/iod/tf_js-two_white_label_cropped_first-2022-07-13T20:05:26.658867Z/model.json');
+        
+        //third model with second model + tote tower labels
+        this.model = await tf.automl.loadObjectDetection('./tote_tower_first/model-export/iod/tf_js-tote_tower_first-2022-07-15T16:12:30.783142Z/model.json');
+
+
+        //YOLOv5 model
+        // const model = await tf.loadGraphModel('yolov5_export_tfjs/exp/best_web_model/model.json');
+      
+        var endTime0 = new Date().getTime();
+        var time0 = endTime0 - start;
+        console.log('Model Load time: ' + time0);
+        console.log(this.model)
+      
+        // Warmup the model for the 1st time
+        // const warmupResult = await model.detect(img);
+      
+        var endTime1 = new Date().getTime();
+        var time1 = endTime1 - endTime0;
+        console.log('Warm up time: ' + time1);
+      }
+      
+      function inTower(tower_dim, tote_dim) {
+        //returns true if the tote is in the tower dimensions, false otherwise
+        //checks the top of the box, the bottom of the box, the left of the box, 
+        //and the right of the box to see if the tote is inside the tower
+        return ((tote_dim.top > tower_dim.top) && (tote_dim.top+tote_dim.height < tower_dim.top+tower_dim.height) && 
+        (tower_dim.left < tote_dim.left) && (tower_dim.left+tower_dim.width > tote_dim.left+tote_dim.width))
+      }
+
+      function predictWebcam() {
+        // Now let's start classifying a frame in the stream.
+        let video = document.querySelector('video')
+        const liveView = document.getElementById('liveView')
+        // console.log("predictWebcam model = " + model)
+        model.detect(video).then(function (predictions) {
+        // Remove any highlighting we did previous frame.
+        for (let i = 0; i < children.length; i++) {
+          liveView.removeChild(children[i]);
+        }
+        children.splice(0);
+        // Now lets loop through predictions and draw them to the live view if
+        // they have a high confidence score.
+        for (let n = 0; n < predictions.length; n++) {
+          // If we are over 25% sure we are sure we classified it right, draw it!
+          if (predictions[n].score >= 0.01) {
+            const p = document.createElement('p');
+            p.innerText = predictions[n].label  + ' - with ' 
+                + Math.round(parseFloat(predictions[n].score) * 100) 
+                + '% confidence.';
+            p.style = 'left: ' + predictions[n].box.left + 'px; top: '
+                + (predictions[n].box.top - 30) + 'px; width: ' 
+                + (predictions[n].box.width - 10) + 'px; height: '
+                + (predictions[n].box.height - 10) + 'px';
+
+            const highlighter = document.createElement('div');
+            highlighter.setAttribute('class', 'highlighter');
+            highlighter.style = 'left: ' + (predictions[n].box.left) + 'px; top: '
+                + predictions[n].box.top + 'px; width: ' 
+                + predictions[n].box.width + 'px; height: '
+                + predictions[n].box.height + 'px;';
+
+            liveView.appendChild(highlighter);
+            liveView.appendChild(p);
+            children.push(highlighter);
+            children.push(p);
+      }
+    }
+    // Call this function again to keep predicting when the browser is ready.
+    window.requestAnimationFrame(predictWebcam);
+  });
+      }
+
+      function predictVideoInput() {      
+        // Detect totes in video
+        endTime0 = new Date().getTime();
+        //score is confidence threshold
+        //first model
+        // const options = {score: 0.4, iou: 0.5, topk: 30};
+
+        //second model
+        // const options = {score: 0.3, iou: 0.5, topk: 30};
+
+        //third model
+        //having higher recall is ok for this application, better to be safe than sorry
+        const options = {score: 0.25, iou: 0.5, topk: 30};
+        let video = document.querySelector('video')
+        // console.log("Video width="+video.style.width)
+        // console.log("Video width="+video.offsetLeft)
+        const liveView = document.getElementById('liveView')
+        model.detect(video, options).then(function (predictions) {
+          // console.log("in the .then function")
+          // console.log(predictions)
+          // Remove any highlighting we did previous frame.
+        
+        
+
+        // Draw boxes on each pill
+        var c = document.getElementById("canvas");
+        c.style.position = "absolute";
+        c.style.left = video.offsetLeft;
+        c.style.top = video.offsetTop;
+        var ctx = c.getContext("2d");
+        ctx.canvas.width = video.width
+        // console.log("video.width="+video);
+        ctx.canvas.height = video.height-50
+        let towerBoxDimArr = [];
+        let towerBoxCount = [];
+        
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        //need to "initialize tote towers first"
+        for(const pred of predictions) {
+          ctx.beginPath();
+          ctx.lineWidth = "3";
+
+          if(pred.label==="tote_tower") {
+            // ctx.strokeStyle = "#FF0000";
+            if(towerBoxCount.length==0){
+              //red if first tower
+              // console.log(towerBoxCount);
+              ctx.strokeStyle = "#FF0000";
+            } else {
+              ctx.strokeStyle = "#800080";
+            }
+            towerBoxDimArr.push(pred.box);
+            towerBoxCount.push(0);
+            ctx.rect(pred.box["left"], pred.box["top"], pred.box["width"], pred.box["height"]);
+            ctx.stroke();
+          }
+        }
+
+        for(const pred of predictions){
+          ctx.beginPath();
+          ctx.lineWidth = "3";
+
+          //blue if totes
+          ctx.strokeStyle = "#00FFFF";
+          if(pred.label!=="tote_tower") {
+            //see which boxes belong in which tote towers
+            for(let i=0; i<towerBoxDimArr.length; i++) {
+              if(inTower(towerBoxDimArr[i], pred.box)) {
+                towerBoxCount[i]++;
+              }
+            }
+
+            ctx.rect(pred.box["left"], pred.box["top"], pred.box["width"], pred.box["height"]);
+            ctx.stroke();
+          }
+        }
+
+        for(let i=0; i<towerBoxCount.length; i++) {
+          ctx.beginPath();
+          ctx.lineWidth = "3";
+          if(towerBoxCount[i]<=SAFEST_LIMIT) {
+            ctx.fillStyle = 'green';
+            ctx.strokeStyle = "#00FF00"
+          } else if(towerBoxCount[i]<=ALLOWABLE_LIMIT) {
+            ctx.fillStyle = 'yellow';
+            ctx.strokeStyle = "#FFFF00"
+          } else {
+            // notify the supervisor
+            ctx.fillStyle = 'red';
+            ctx.strokeStyle = "#FF0000"
+          }
+          ctx.font = '60px san-serif';
+          ctx.fillText(towerBoxCount[i], towerBoxDimArr[i].left, towerBoxDimArr[i].top)
+          ctx.rect(towerBoxDimArr[i]["left"], towerBoxDimArr[i]["top"], towerBoxDimArr[i]["width"], towerBoxDimArr[i]["height"]);
+          ctx.stroke();
+          // console.log("towerBoxDimArr[i].top = " + towerBoxDimArr[i].top)
+          // console.log("towerBoxDimArr[i].left = " + towerBoxDimArr[i].left)
+        }
+        // console.log("towerBoxCount = " + towerBoxCount)
+        window.requestAnimationFrame(predictVideoInput);
+      });
+
+        
+      }
+      </script>
+</html>
+
+
